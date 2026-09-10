@@ -37,6 +37,7 @@ RUN python -m pip install --no-cache-dir \
 WORKDIR /src
 
 # Clone the pinned openEMS release and only the headless subprojects.
+# Clone the pinned openEMS release and only the headless subprojects.
 RUN git clone --depth 1 --branch "${OPENEMS_REF}" \
         https://github.com/thliebig/openEMS-Project.git openEMS-Project \
     && cd openEMS-Project \
@@ -44,8 +45,10 @@ RUN git clone --depth 1 --branch "${OPENEMS_REF}" \
     && git submodule update --init --depth 1 \
         fparser \
         CSXCAD \
-        openEMS
-
+        openEMS \
+    # Make CMake use the static release versions. Shallow submodules do not
+    # contain enough Git history for `git describe --tags`.
+    && rm -f CSXCAD/.git openEMS/.git
 # Build the headless solver. QCSXCAD and AppCSXCAD are not required.
 RUN cmake \
         -S /src/openEMS-Project \
