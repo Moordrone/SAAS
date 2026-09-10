@@ -1,0 +1,372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.easyem.com/project/v1.0.0.json",
+  "title": "EasyEM Project Definition",
+  "description": "The canonical statement of an electromagnetic problem. Values are stored with their unit; the server normalises to SI before hashing or solving. Display units never reach the solver.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "component",
+    "parameters"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0",
+      "description": "Semantic version of this document format."
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "family": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "MicrostripLine",
+            "RectangularPatch"
+          ]
+        }
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/parameter"
+      }
+    },
+    "mesh": {
+      "type": "object",
+      "description": "Drives solver cost. Absent means server defaults.",
+      "properties": {
+        "accuracy": {
+          "enum": [
+            "draft",
+            "standard",
+            "high"
+          ]
+        },
+        "cells_per_wavelength": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 60
+        }
+      }
+    },
+    "solver": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "enum": [
+            "mock",
+            "analytical",
+            "emg-tlm"
+          ]
+        },
+        "dimension": {
+          "enum": [
+            "2D",
+            "3D"
+          ]
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Server-assigned. Identical physics gives an identical hash."
+    }
+  },
+  "$defs": {
+    "parameter": {
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "unit": {
+          "type": "string",
+          "enum": [
+            "",
+            "1",
+            "GHz",
+            "Hz",
+            "MHz",
+            "MS/m",
+            "S/m",
+            "THz",
+            "cm",
+            "dB",
+            "deg",
+            "inch",
+            "kHz",
+            "m",
+            "mil",
+            "mm",
+            "ms",
+            "nm",
+            "ns",
+            "ohm",
+            "ps",
+            "rad",
+            "s",
+            "um",
+            "us"
+          ]
+        },
+        "provenance": {
+          "enum": [
+            "user",
+            "ai_suggested",
+            "default",
+            "material_database",
+            "computed"
+          ],
+          "description": "Where the value came from. Mandatory in practice: it drives what the UI shows as confirmed versus proposed."
+        },
+        "source_ref": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "bounds": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    }
+  },
+  "x-si-units": {
+    "frequency": "Hz",
+    "length": "m",
+    "angle": "rad",
+    "conductivity": "S/m",
+    "impedance": "ohm",
+    "time": "s",
+    "power_ratio": "dB",
+    "dimensionless": "1"
+  },
+  "x-components": {
+    "RectangularPatch": {
+      "key": "RectangularPatch",
+      "family": "Antennas",
+      "name": "Rectangular microstrip patch",
+      "description": "Single-layer rectangular patch fed against a ground plane. The workhorse of printed antennas: cheap, flat, narrowband.",
+      "supports_analytical": true,
+      "outputs": [
+        "s_parameters",
+        "radiation_pattern",
+        "input_impedance",
+        "gain"
+      ],
+      "parameters": [
+        {
+          "name": "frequency_center",
+          "label": "Centre frequency",
+          "dimension": "frequency",
+          "required": true,
+          "derivable": false,
+          "default_si": null,
+          "min_si": 1000000.0,
+          "max_si": 1000000000000.0,
+          "display_unit": "GHz",
+          "description": "Design frequency the component is tuned to.",
+          "choices": []
+        },
+        {
+          "name": "substrate_material",
+          "label": "Substrate",
+          "dimension": "dimensionless",
+          "required": true,
+          "derivable": false,
+          "default_si": null,
+          "min_si": null,
+          "max_si": null,
+          "display_unit": "",
+          "description": "Substrate key from the material library.",
+          "choices": [
+            "FR4",
+            "RO4003C",
+            "RO3003",
+            "RT5880",
+            "ALUMINA",
+            "AIR"
+          ]
+        },
+        {
+          "name": "substrate_height",
+          "label": "Substrate thickness",
+          "dimension": "length",
+          "required": true,
+          "derivable": false,
+          "default_si": null,
+          "min_si": 1e-06,
+          "max_si": 0.05,
+          "display_unit": "mm",
+          "description": "Dielectric thickness between the trace and the ground plane.",
+          "choices": []
+        },
+        {
+          "name": "feed_impedance",
+          "label": "Feed impedance",
+          "dimension": "impedance",
+          "required": false,
+          "derivable": false,
+          "default_si": 50.0,
+          "min_si": 1.0,
+          "max_si": 1000.0,
+          "display_unit": "ohm",
+          "description": "System impedance the feed should match.",
+          "choices": []
+        },
+        {
+          "name": "patch_width",
+          "label": "Patch width",
+          "dimension": "length",
+          "required": true,
+          "derivable": true,
+          "default_si": null,
+          "min_si": 1e-09,
+          "max_si": 10.0,
+          "display_unit": "mm",
+          "description": "Derived from the frequency and substrate if not given.",
+          "choices": []
+        },
+        {
+          "name": "patch_length",
+          "label": "Patch length",
+          "dimension": "length",
+          "required": true,
+          "derivable": true,
+          "default_si": null,
+          "min_si": 1e-09,
+          "max_si": 10.0,
+          "display_unit": "mm",
+          "description": "Sets the resonant frequency. Derived if not given.",
+          "choices": []
+        }
+      ]
+    },
+    "MicrostripLine": {
+      "key": "MicrostripLine",
+      "family": "Transmission lines",
+      "name": "Microstrip transmission line",
+      "description": "A trace over a ground plane, sized to a target impedance.",
+      "supports_analytical": true,
+      "outputs": [
+        "s_parameters",
+        "impedance",
+        "effective_permittivity"
+      ],
+      "parameters": [
+        {
+          "name": "frequency_center",
+          "label": "Centre frequency",
+          "dimension": "frequency",
+          "required": true,
+          "derivable": false,
+          "default_si": null,
+          "min_si": 1000000.0,
+          "max_si": 1000000000000.0,
+          "display_unit": "GHz",
+          "description": "Design frequency the component is tuned to.",
+          "choices": []
+        },
+        {
+          "name": "substrate_material",
+          "label": "Substrate",
+          "dimension": "dimensionless",
+          "required": true,
+          "derivable": false,
+          "default_si": null,
+          "min_si": null,
+          "max_si": null,
+          "display_unit": "",
+          "description": "Substrate key from the material library.",
+          "choices": [
+            "FR4",
+            "RO4003C",
+            "RO3003",
+            "RT5880",
+            "ALUMINA",
+            "AIR"
+          ]
+        },
+        {
+          "name": "substrate_height",
+          "label": "Substrate thickness",
+          "dimension": "length",
+          "required": true,
+          "derivable": false,
+          "default_si": null,
+          "min_si": 1e-06,
+          "max_si": 0.05,
+          "display_unit": "mm",
+          "description": "Dielectric thickness between the trace and the ground plane.",
+          "choices": []
+        },
+        {
+          "name": "target_impedance",
+          "label": "Target impedance",
+          "dimension": "impedance",
+          "required": true,
+          "derivable": false,
+          "default_si": 50.0,
+          "min_si": 1.0,
+          "max_si": 1000.0,
+          "display_unit": "ohm",
+          "description": "Characteristic impedance the line should present.",
+          "choices": []
+        },
+        {
+          "name": "trace_width",
+          "label": "Trace width",
+          "dimension": "length",
+          "required": true,
+          "derivable": true,
+          "default_si": null,
+          "min_si": 1e-09,
+          "max_si": 10.0,
+          "display_unit": "mm",
+          "description": "Derived from the target impedance if not given.",
+          "choices": []
+        },
+        {
+          "name": "electrical_length",
+          "label": "Electrical length",
+          "dimension": "angle",
+          "required": false,
+          "derivable": false,
+          "default_si": null,
+          "min_si": 0.0,
+          "max_si": 100.0,
+          "display_unit": "deg",
+          "description": "Optional. 90 deg gives a quarter-wave transformer.",
+          "choices": []
+        }
+      ]
+    }
+  }
+}

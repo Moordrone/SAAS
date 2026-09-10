@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: easyem
+          POSTGRES_PASSWORD: easyem
+          POSTGRES_DB: easyem_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+
+      - run: pip install -e ".[dev]"
+      - run: ruff check easyem tests
+
+      # The suite runs twice: SQLite for speed, PostgreSQL because that is what
+      # production uses and the two disagree on row locking and datetimes.
+      - name: Tests (sqlite)
+        run: pytest -q
+        env: {ENVIRONMENT: test}
+
+      - name: Tests (postgres)
+        run: pytest -q
+        env:
+          ENVIRONMENT: test
+          DATABASE_URL: postgresql+psycopg://easyem:easyem@localhost:5432/easyem_test
+
+      - name: Migrations apply cleanly from scratch
+        run: alembic upgrade head
+        env:
+          ENVIRONMENT: test
+          DATABASE_URL: postgresql+psycopg://easyem:easyem@localhost:5432/easyem_test

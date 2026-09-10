@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: easyem
+      POSTGRES_PASSWORD: easyem
+      POSTGRES_DB: easyem
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U easyem"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  api:
+    build: .
+    command: uvicorn easyem.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      ENVIRONMENT: dev
+      DATABASE_URL: postgresql+psycopg://easyem:easyem@db:5432/easyem
+      SECRET_KEY: dev-only-insecure-secret-change-me
+    ports: ["8000:8000"]
+    volumes: [".:/app"]
+    depends_on:
+      db: {condition: service_healthy}
+
+  worker:
+    # Its own image: the application plus openEMS compiled from source. The
+    # first build is slow (~10-15 min) and then cached. The API image stays
+    # small because only the worker needs the solver.
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: python -m easyem.jobs.worker
+    environment:
+      ENVIRONMENT: dev
+      DATABASE_URL: postgresql+psycopg://easyem:easyem@db:5432/easyem
+      SECRET_KEY: dev-only-insecure-secret-change-me
+      EASYEM_RUN_ROOT: /var/lib/easyem/runs
+    # No bind mount of the source here: the image is self-contained so openEMS
+    # on the PATH is not shadowed. Rebuild to pick up code changes, or add
+    # "./easyem:/app/easyem" during active development.
+    volumes: ["runs:/var/lib/easyem/runs"]
+    depends_on:
+      db: {condition: service_healthy}
+
+volumes:
+  pgdata:
+  runs:
