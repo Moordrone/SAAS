@@ -1,70 +1,141 @@
 # ---------------------------------------------------------------------------
-# Worker image: the application, plus openEMS compiled from source.
+# EasyEM openEMS worker
 #
-# The API image does not need openEMS and stays small; only the worker actually
-# runs the solver, so only the worker pays for it. openEMS is not on PyPI and
-# has no Debian package that tracks upstream, so it is built here once and cached
-# as a Docker layer.
-#
-# Build:  docker build -f Dockerfile.worker -t easyem-worker .
-# It is a long first build (~10-15 min): openEMS pulls in CSXCAD, fparser,
-# QCSXCAD and the Python bindings. The layer is cached afterwards.
+# openEMS is compiled once in a dedicated build stage. The final image contains
+# only the solver runtime, its Python bindings, and the EasyEM worker.
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim-bookworm AS openems-build
+
+FROM python:3.11-slim-bookworm AS solver-build
+
+ARG OPENEMS_REF=v0.0.36
+ARG OPENEMS_COMMIT=d0d2e8dad8a02388f1919bbcdd29a67e9199dd2c
+ARG OPENEMS_BUILD_JOBS=2
 
 ENV DEBIAN_FRONTEND=noninteractive
-# Build dependencies for openEMS and its subprojects. hdf5/tinyxml/boost are the
-# numerics; vtk is needed by the Python bindings' post-processing.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        git cmake g++ make \
-        libhdf5-dev libvtk9-dev libboost-all-dev \
-        libcgal-dev libtinyxml-dev libfparser-dev \
-        qtbase5-dev libqt5xml5 \
-        python3-dev python3-numpy python3-h5py \
+
+# Native dependencies required to compile openEMS, CSXCAD, and fparser.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        git \
+        libboost-all-dev \
+        libcgal-dev \
+        libhdf5-dev \
+        libtinyxml-dev \
+        libvtk9-dev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build
-# openEMS ships a build script that clones and builds every subproject in the
-# right order. Pinning a tag keeps the image reproducible; bump it deliberately.
-ARG OPENEMS_REF=v0.0.36
-RUN git clone --recursive --branch ${OPENEMS_REF} \
-        https://github.com/thliebig/openEMS-Project.git \
+# Versions compatible with the openEMS v0.0.36 Python bindings.
+RUN python -m pip install --no-cache-dir \
+        setuptools==68.2.2 \
+        wheel==0.43.0 \
+        Cython==0.29.37 \
+        numpy==1.26.4
+
+WORKDIR /src
+
+# Clone the pinned openEMS release and only the headless subprojects.
+RUN git clone --depth 1 --branch "${OPENEMS_REF}" \
+        https://github.com/thliebig/openEMS-Project.git openEMS-Project \
     && cd openEMS-Project \
-    && ./update_openEMS.sh /opt/openems --python
+    && test "$(git rev-parse HEAD)" = "${OPENEMS_COMMIT}" \
+    && git submodule update --init --depth 1 \
+        fparser \
+        CSXCAD \
+        openEMS
+
+# Build the headless solver. QCSXCAD and AppCSXCAD are not required.
+RUN cmake \
+        -S /src/openEMS-Project \
+        -B /src/build \
+        -DCMAKE_INSTALL_PREFIX=/opt/openEMS \
+        -DBUILD_APPCSXCAD=OFF \
+        -DWITH_MPI=OFF \
+    && cmake --build /src/build --parallel "${OPENEMS_BUILD_JOBS}"
+
+# Build portable wheels for the two Python bindings.
+WORKDIR /src/openEMS-Project/CSXCAD/python
+
+RUN python setup.py \
+        build_ext \
+        -I/opt/openEMS/include \
+        -L/opt/openEMS/lib \
+        -R/opt/openEMS/lib \
+        bdist_wheel \
+        --dist-dir /wheels
+
+WORKDIR /src/openEMS-Project/openEMS/python
+
+RUN python setup.py \
+        build_ext \
+        -I/opt/openEMS/include \
+        -L/opt/openEMS/lib \
+        -R/opt/openEMS/lib \
+        bdist_wheel \
+        --dist-dir /wheels \
+    && git -C /src/openEMS-Project rev-parse HEAD \
+        > /opt/openEMS/source-revision.txt
 
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim-bookworm
+# Runtime image
+# ---------------------------------------------------------------------------
 
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-# Runtime libraries only — the -dev headers stay in the build stage.
-# Runtime libraries. Package version numbers change between Debian releases
-# (bookworm -> trixie renamed several of these), so match by unversioned name
-# and let apt resolve whatever the base image ships. The -dev packages already
-# pull the runtime .so as a dependency, which sidesteps the naming entirely.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libhdf5-dev libvtk9-dev libboost-thread-dev libtinyxml-dev \
-        libfparser-dev libqt5xml5 libpq5 \
+FROM python:3.11-slim-bookworm AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/openEMS/bin:${PATH}" \
+    LD_LIBRARY_PATH="/opt/openEMS/lib" \
+    MPLBACKEND=Agg \
+    MPLCONFIGDIR=/tmp/matplotlib \
+    EASYEM_OPENEMS_THREADS=2 \
+    EASYEM_OPENEMS_VERSION=0.0.36 \
+    EASYEM_RUN_ROOT=/var/lib/easyem/runs
+
+# Runtime libraries required by openEMS and its Python bindings.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libboost-chrono1.74.0 \
+        libboost-date-time1.74.0 \
+        libboost-serialization1.74.0 \
+        libboost-system1.74.0 \
+        libboost-thread1.74.0 \
+        libgmp10 \
+        libhdf5-103-1 \
+        libhdf5-hl-100 \
+        libmpfr6 \
+        libpq5 \
+        libtinyxml2.6.2v5 \
+        libvtk9.1 \
     && rm -rf /var/lib/apt/lists/*
 
-# openEMS itself, copied out of the build stage.
-COPY --from=openems-build /opt/openems /opt/openems
-ENV PATH="/opt/openems/bin:${PATH}" \
-    LD_LIBRARY_PATH="/opt/openems/lib:${LD_LIBRARY_PATH}" \
-    PYTHONPATH="/opt/openems/lib/python3.12/site-packages:${PYTHONPATH}"
+COPY --from=solver-build /opt/openEMS /opt/openEMS
+COPY --from=solver-build /wheels /tmp/openems-wheels
+
+# Install the openEMS bindings and their Python runtime dependencies.
+RUN python -m pip install --no-cache-dir \
+        numpy==1.26.4 \
+        "h5py>=3.10,<4" \
+        "matplotlib>=3.8,<4" \
+        /tmp/openems-wheels/*.whl \
+    && rm -rf /tmp/openems-wheels
 
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential libpq-dev && rm -rf /var/lib/apt/lists/*
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[dev]"
+
 COPY . .
 
-# Confirm openEMS is importable at build time. A worker image that cannot import
-# the solver should fail to build, not fail silently at the first job.
-RUN python3 -c "import openEMS, CSXCAD; print('openEMS OK')"
-
-RUN mkdir -p /var/lib/easyem/runs && useradd -m app \
+RUN python -m pip install --no-cache-dir . \
+    && useradd --uid 1000 --create-home app \
+    && mkdir -p /var/lib/easyem/runs/openems \
     && chown -R app:app /app /var/lib/easyem/runs
+
+# Fail the image build immediately if the solver bindings are unusable.
+RUN command -v openEMS \
+    && python -c "import openEMS, CSXCAD; from openEMS import openEMS as Solver; from CSXCAD import ContinuousStructure; solver = Solver(); solver.SetCSX(ContinuousStructure()); print('OPENEMS_IMPORT_OK')"
+
 USER app
 
 CMD ["python", "-m", "easyem.jobs.worker"]
