@@ -13,8 +13,8 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyjwt>=2.8",
     "email-validator>=2.1",
+    "numpy>=1.26,<2",
 ]
-
 [project.scripts]
 easyem-worker = "easyem.jobs.worker:main"
 

@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://easyem:easyem@localhost:5432/easyem"
 
     secret_key: str = DEV_SECRET
-
+    # The API may advertise openEMS when it is installed on a separate worker.
+    openems_enabled: bool = False
     # Short-lived access token, long-lived rotating refresh token.
     access_token_ttl_seconds: int = 15 * 60
     refresh_token_ttl_seconds: int = 30 * 24 * 3600

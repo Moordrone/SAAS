@@ -28,12 +28,14 @@ def _registry() -> dict[str, SolverAdapter]:
     if not _BACKENDS:
         _BACKENDS["analytical"] = AnalyticalSolverAdapter()
         _BACKENDS["mock"] = MockSolverAdapter()
-        # openEMS only registers when it is actually installed. Offering a
-        # backend that cannot run is worse than not offering it: the customer
-        # discovers the gap after their credits are held.
-        if openems_available():
+
+        # The API may advertise openEMS when it is available on a separate worker.
+        settings = get_settings()
+        if settings.openems_enabled or openems_available():
             _BACKENDS["openems"] = OpenEMSAdapter()
+
         # EMG-TLM registers here once it passes tests/solver_contract/.
+
     return _BACKENDS
 
 

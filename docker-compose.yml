@@ -23,6 +23,7 @@ services:
       ENVIRONMENT: dev
       DATABASE_URL: postgresql+psycopg://easyem:easyem@db:5432/easyem
       SECRET_KEY: dev-only-insecure-secret-change-me
+      OPENEMS_ENABLED: "true"
     ports: ["8000:8000"]
     volumes: [".:/app"]
     depends_on:
