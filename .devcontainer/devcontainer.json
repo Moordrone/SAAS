@@ -1,13 +1,10 @@
 {
-  "name": "EasyEM with openEMS",
-  "build": {
-    "dockerfile": "../Dockerfile.worker",
-    "context": ".."
-  },
+  "name": "EasyEM Development",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  "postCreateCommand": "python3 -c \"import openEMS, CSXCAD; print('openEMS ready in codespace')\"",
+  "postCreateCommand": "python -m pip install --user -e '.[dev]'",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -20,5 +17,5 @@
     8000,
     3000
   ],
-  "remoteUser": "app"
+  "remoteUser": "vscode"
 }
